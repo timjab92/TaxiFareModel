@@ -7,9 +7,18 @@ from TaxiFareModel.encoders import DistanceTransformer, TimeFeaturesEncoder
 import numpy as np
 from TaxiFareModel.data import get_data, clean_data
 from sklearn.model_selection import train_test_split
+import mlflow
+from mlflow.tracking import MlflowClient
+from memoized_property import memoized_property
+
+
+EXPERIMENT_NAME = "[GER] [BER] [timjab92] experiment + 1"
 
 
 class Trainer():
+
+    MLFLOW_URI = "https://mlflow.lewagon.co/"
+
     def __init__(self, X, y):
         """
             X: pandas DataFrame
@@ -18,6 +27,13 @@ class Trainer():
         self.pipeline = None
         self.X = X
         self.y = y
+        self.experiment_name = EXPERIMENT_NAME
+
+    def set_experiment_name(self, experiment_name):
+        """
+        defines experiment name
+        """
+        self.experiment_name = experiment_name
 
     def set_pipeline(self):
         """defines the pipeline as a class attribute"""
@@ -50,14 +66,38 @@ class Trainer():
         """set and train the pipeline"""
         self.set_pipeline()
         self.pipe.fit(self.X, self.y)
-
+        self.mlflow_log_param("model", "linear")
 
     def evaluate(self, X_test, y_test):
         """evaluates the pipeline on df_test and return the RMSE"""
         # compute y_pred on the test set
         y_pred = self.pipe.predict(X_test)
         rmse = np.sqrt(((y_pred - y_test)**2).mean())
+        self.mlflow_log_metric("rmse", rmse)
         return rmse
+
+    @memoized_property
+    def mlflow_client(self):
+        mlflow.set_tracking_uri(self.MLFLOW_URI)
+        return MlflowClient()
+
+    @memoized_property
+    def mlflow_experiment_id(self):
+        try:
+            return self.mlflow_client.create_experiment(self.experiment_name)
+        except BaseException:
+            return self.mlflow_client.get_experiment_by_name(
+                self.experiment_name).experiment_id
+
+    @memoized_property
+    def mlflow_run(self):
+        return self.mlflow_client.create_run(self.mlflow_experiment_id)
+
+    def mlflow_log_param(self, key, value):
+        self.mlflow_client.log_param(self.mlflow_run.info.run_id, key, value)
+
+    def mlflow_log_metric(self, key, value):
+        self.mlflow_client.log_metric(self.mlflow_run.info.run_id, key, value)
 
 
 if __name__ == "__main__":
